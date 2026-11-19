@@ -30,6 +30,7 @@ import {
 import ComicSceneIllustration from './components/ComicSceneIllustration';
 import ComicBookPage from './components/ComicBookPage';
 import FullBookModal from './components/FullBookModal';
+import MythoriaLogo from './components/MythoriaLogo';
 
 export default function App() {
   // Autentikasi Pengguna & Sesi
@@ -83,6 +84,8 @@ export default function App() {
   const [pageActionNotice, setPageActionNotice] = useState('');
 
   // Variasi Grid Komik & Jalur Cerita Bercabang (Choose Your Own Adventure)
+  const [selectedLayout, setSelectedLayout] = useState('5-panel');
+  const [selectedCharStyle, setSelectedCharStyle] = useState('auto');
   const [pageLayouts, setPageLayouts] = useState({});
   const [pageBranches, setPageBranches] = useState({
     1: [
@@ -91,6 +94,37 @@ export default function App() {
     ]
   });
   const [showFullBookModal, setShowFullBookModal] = useState(false);
+
+  // Bible Karakter (Konsistensi Tokoh Lintas Babak)
+  const [characterBible, setCharacterBible] = useState(() => {
+    try {
+      const saved = localStorage.getItem('mythoria_character_bible');
+      return saved ? JSON.parse(saved) : {
+        protagonistName: 'Rian',
+        protagonistArchetype: 'Penjelajah Realitas',
+        protagonistAppearance: 'Jubah hitam berkerah tinggi, rambut perak runcing, bekas luka di mata kiri',
+        protagonistPersonality: 'Tenang, cerdas, berjiwa pemberani dan membawa proyektor saku 35mm',
+        companionName: 'Maya',
+        companionArchetype: 'Teknisi & Navigator',
+        companionAppearance: 'Kacamata goggle steampunk, jaket kulit kuning, rambut cokelat dikuncir'
+      };
+    } catch {
+      return {
+        protagonistName: 'Rian',
+        protagonistArchetype: 'Penjelajah Realitas',
+        protagonistAppearance: 'Jubah hitam berkerah tinggi, rambut perak runcing, bekas luka di mata kiri',
+        protagonistPersonality: 'Tenang, cerdas, berjiwa pemberani dan membawa proyektor saku 35mm',
+        companionName: 'Maya',
+        companionArchetype: 'Teknisi & Navigator',
+        companionAppearance: 'Kacamata goggle steampunk, jaket kulit kuning, rambut cokelat dikuncir'
+      };
+    }
+  });
+  const [showCharacterBibleModal, setShowCharacterBibleModal] = useState(false);
+
+  // Mode Rendering Ilustrasi Komik (Vektor Cepat vs AI Imagen 3 Nyata)
+  const [renderingMode, setRenderingMode] = useState(() => localStorage.getItem('mythoria_rendering_mode') || 'vector');
+  const [generatingImages, setGeneratingImages] = useState({});
 
   // Input Naskah Bebas Penulis & Dropdown Pembantu
   const [customSentence, setCustomSentence] = useState('Proyektor film 35mm menelan para pengejar tanpa ampun.');
@@ -125,6 +159,12 @@ export default function App() {
       fetchUsersList();
     }
   }, [currentUser, authToken]);
+
+  useEffect(() => {
+    if (showSettingsModal && (apiKey || hasServerApiKey) && availableModels.length === 0) {
+      fetchAvailableModels(apiKey);
+    }
+  }, [showSettingsModal]);
 
   const fetchSystemAiConfig = async () => {
     try {
@@ -320,13 +360,92 @@ export default function App() {
     setCustomSentence(`${sub} ${act} ${mod}.`);
   };
 
+  const updateCharacterBible = (updater) => {
+    setCharacterBible(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : { ...prev, ...updater };
+      localStorage.setItem('mythoria_character_bible', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const toggleRenderingMode = (mode) => {
+    setRenderingMode(mode);
+    localStorage.setItem('mythoria_rendering_mode', mode);
+  };
+
+  // Memori Alur Cerita Lintas Halaman (Story Continuity Context)
   const getPreviousStorySummary = () => {
-    const recent = panels.slice(0, 3);
-    if (recent.length === 0) return '';
-    return recent
-      .map(p => `[Hal ${p.pageNumber || 1}]: ${p.comicCaption || p.sentence} (${p.aiStory || ''})`)
-      .reverse()
-      .join(' -> ');
+    if (currentPage <= 1) return '';
+    const prevPages = pages
+      .filter(p => Number(p.pageNumber) < Number(currentPage))
+      .sort((a, b) => Number(a.pageNumber) - Number(b.pageNumber));
+
+    if (prevPages.length === 0) return '';
+
+    return prevPages
+      .map(p => {
+        const pPanels = panels.filter(panel => Number(panel.pageNumber ?? panel.page_number ?? 1) === Number(p.pageNumber));
+        const firstP = pPanels[0];
+        if (firstP) {
+          return `[Babak ${p.pageNumber}: ${p.title}]: Naskah "${firstP.sentence}". Hasil Kejadian: ${firstP.aiStory || 'Alur berlangsung.'}`;
+        }
+        return `[Babak ${p.pageNumber}: ${p.title}]: Awal mula babak.`;
+      })
+      .join(' \n');
+  };
+
+  // Hybrid Rendering: Generate Gambar Nyata AI Imagen per Panel
+  const handleGeneratePanelImage = async (panelNumber, targetPageNumber, scenePrompt) => {
+    const key = `${targetPageNumber}-${panelNumber}`;
+    setGeneratingImages(prev => ({ ...prev, [key]: true }));
+
+    try {
+      const res = await fetch('/api/generate-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-gemini-api-key': apiKey,
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({
+          apiKey,
+          prompt: scenePrompt || customSentence,
+          characterBible,
+          panelNumber,
+          pageNumber: targetPageNumber
+        })
+      });
+
+      const data = await res.json();
+      if (data.imageUrl) {
+        setPanels(prev => prev.map(p => {
+          const pNum = Number(p.pageNumber ?? p.page_number ?? 1);
+          if (pNum === Number(targetPageNumber)) {
+            const currentComicPanels = (p.comicPanels && p.comicPanels.length > 0)
+              ? p.comicPanels
+              : [1, 2, 3, 4, 5].map(num => ({ panelNumber: num, scene: p.sentence }));
+            const updatedComicPanels = currentComicPanels.map(sp => {
+              if (Number(sp.panelNumber) === Number(panelNumber)) {
+                return { ...sp, aiImageUrl: data.imageUrl };
+              }
+              return sp;
+            });
+            return {
+              ...p,
+              comicPanels: updatedComicPanels,
+              [`panelImage_${panelNumber}`]: data.imageUrl
+            };
+          }
+          return p;
+        }));
+      } else {
+        console.warn('[AI Image Notice]', data.error || 'Menggunakan Mode Vektor Standar.');
+      }
+    } catch (err) {
+      console.warn('[AI Image Connection Error]', err.message);
+    } finally {
+      setGeneratingImages(prev => ({ ...prev, [key]: false }));
+    }
   };
 
   // ----------------------------------------------------
@@ -480,11 +599,12 @@ export default function App() {
     const key = keyToUse || apiKey;
     if (!key) {
       setApiStatusMessage('Harap masukkan API Key terlebih dahulu.');
+      setAvailableModels([]);
       return;
     }
 
     setIsLoadingModels(true);
-    setApiStatusMessage('Menghubungi Google AI Studio...');
+    setApiStatusMessage('Menghubungi Google AI Studio untuk menyaring model aktif...');
 
     try {
       const res = await fetch('/api/models', {
@@ -496,17 +616,19 @@ export default function App() {
       const data = await res.json();
       if (res.ok && data.models?.length > 0) {
         setAvailableModels(data.models);
-        setApiStatusMessage(`Berhasil menemukan ${data.models.length} model aktif.`);
+        setApiStatusMessage(`✓ Berhasil memverifikasi API Key! Ditemukan ${data.models.length} model Gemini yang siap digunakan.`);
         
         const hasSaved = data.models.some(m => m.id === selectedModel);
         if (!hasSaved && data.models.length > 0) {
           setSelectedModel(data.models[0].id);
         }
       } else {
-        setApiStatusMessage(data.error || 'Tidak ada model yang dapat digunakan.');
+        setAvailableModels([]);
+        setApiStatusMessage(data.error || 'Tidak ada model Gemini teks yang aktif untuk API Key ini.');
       }
     } catch (err) {
-      setApiStatusMessage(`Gagal memuat model: ${err.message}`);
+      setAvailableModels([]);
+      setApiStatusMessage(`Gagal memverifikasi API Key: ${err.message}`);
     } finally {
       setIsLoadingModels(false);
     }
@@ -573,11 +695,15 @@ export default function App() {
           'Authorization': `Bearer ${authToken}`
         },
         body: JSON.stringify({
+          apiKey,
           model: selectedModel,
           sentence: customSentence.trim(),
           pageNumber: currentPage,
           storyHistory: historyContext,
-          inkType
+          characterBible,
+          inkType,
+          layoutType: selectedLayout,
+          characterStyle: selectedCharStyle
         })
       });
 
@@ -597,7 +723,22 @@ export default function App() {
       }
 
       if (res.ok && result.data) {
-        setPanels(prev => [{ ...result.data, pageNumber: Number(result.data.pageNumber ?? currentPage) }, ...prev]);
+        setPageLayouts(prev => ({
+          ...prev,
+          [currentPage]: selectedLayout
+        }));
+        setPanels(prev => [{ ...result.data, pageNumber: Number(result.data.pageNumber ?? currentPage), layoutType: selectedLayout }, ...prev]);
+
+        if (result.data.branchingOptions && result.data.branchingOptions.length > 0) {
+          setPageBranches(prev => ({
+            ...prev,
+            [currentPage]: result.data.branchingOptions.map((opt, i) => ({
+              id: `opt-${i}`,
+              label: opt.label,
+              targetPage: currentPage + (opt.targetOffset || (i + 1))
+            }))
+          }));
+        }
 
         if (inkType === 'jelaga') setInkJelaga(v => Math.max(0, v - 2));
         if (inkType === 'emas') setInkGold(v => Math.max(0, v - 1));
@@ -614,68 +755,6 @@ export default function App() {
       }
     } catch (err) {
       alert(`Terjadi kesalahan sistem: ${err.message}`);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleSummon = async (characterType) => {
-    if (inkGold < 2) {
-      alert('Pemanggilan karakter membutuhkan 2 tetes Tinta Emas!');
-      return;
-    }
-
-    setIsProcessing(true);
-    try {
-      const res = await fetch('/api/summon', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'x-gemini-api-key': apiKey,
-          'Authorization': `Bearer ${authToken}`
-        },
-        body: JSON.stringify({
-          model: selectedModel,
-          characterType,
-          pageNumber: currentPage
-        })
-      });
-
-      if (res.status === 429) {
-        setShowQuotaModal(true);
-        setIsProcessing(false);
-        return;
-      }
-
-      const result = await res.json();
-      if (result.error === 'QUOTA_EXCEEDED') {
-        setShowQuotaModal(true);
-        setIsProcessing(false);
-        return;
-      }
-
-      if (res.ok && result.data) {
-        setInkGold(v => Math.max(0, v - 2));
-        setCharacters(prev => [{ ...result.data, pageNumber: Number(currentPage) }, ...prev]);
-
-        const summonPanel = {
-          id: Date.now(),
-          pageNumber: Number(currentPage),
-          sentence: `${result.data.name} melangkah keluar dari naskah Halaman ${currentPage}!`,
-          inkType: 'emas',
-          comicCaption: `TOKOH DARI KELAMNYA SELULOID: ${result.data.name.toUpperCase()}`,
-          soundEffect: result.data.soundEffect || 'BAMMM!',
-          visualScene: result.data.visualScene,
-          aiStory: `${result.data.name} terwujud secara fisik ke dalam ruangan, siap menggunakan keahlian khususnya untuk membantu Anda!`,
-          panelDialogue: result.data.dialogue,
-          isRedacted: false
-        };
-        setPanels(prev => [summonPanel, ...prev]);
-      } else {
-        alert(result.error || 'Gagal memanggil karakter.');
-      }
-    } catch (err) {
-      alert(`Kesalahan pemanggilan: ${err.message}`);
     } finally {
       setIsProcessing(false);
     }
@@ -720,7 +799,7 @@ export default function App() {
           
           <div className="text-center space-y-2 border-b-3 border-black pb-4">
             <div className="flex justify-center mb-1">
-              <img src="/logo.svg" alt="Mythoria Logo" className="w-20 h-20 border-3 border-black rounded-full bg-yellow-300 p-1 shadow-[4px_4px_0_#000]" />
+              <MythoriaLogo className="w-24 h-24" withBorder={true} />
             </div>
             <div className="inline-block bg-black text-yellow-300 font-black px-3 py-1 text-xs tracking-widest border-2 border-black rotate-[-2deg]">
               PORTAL MASUK NASKAH
@@ -802,49 +881,6 @@ export default function App() {
             </button>
           </form>
 
-          <div className="pt-3 border-t-2 border-black space-y-2">
-            <div className="text-[11px] font-black uppercase text-neutral-600 tracking-wider">
-              Akses Cepat Pengujian (1-Klik Masuk):
-            </div>
-            <div className="grid grid-cols-1 gap-1.5 text-xs font-bold">
-              <button
-                type="button"
-                onClick={() => handleLogin(null, 'admin', 'admin123')}
-                className="w-full py-2 px-3 bg-red-500 hover:bg-red-600 text-white border-2 border-black shadow-[2px_2px_0_#000] flex items-center justify-between transition"
-              >
-                <span className="flex items-center gap-2">
-                  <ShieldAlert className="w-4 h-4" />
-                  <strong>ADMIN (Sutradara)</strong>
-                </span>
-                <span className="font-mono text-xs opacity-90">admin / admin123</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleLogin(null, 'penulis', 'user123')}
-                className="w-full py-2 px-3 bg-blue-500 hover:bg-blue-600 text-white border-2 border-black shadow-[2px_2px_0_#000] flex items-center justify-between transition"
-              >
-                <span className="flex items-center gap-2">
-                  <User className="w-4 h-4" />
-                  <strong>USER DUMMY 1 (Penulis)</strong>
-                </span>
-                <span className="font-mono text-xs opacity-90">penulis / user123</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleLogin(null, 'pembaca', 'user123')}
-                className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white border-2 border-black shadow-[2px_2px_0_#000] flex items-center justify-between transition"
-              >
-                <span className="flex items-center gap-2">
-                  <User className="w-4 h-4" />
-                  <strong>USER DUMMY 2 (Pembaca)</strong>
-                </span>
-                <span className="font-mono text-xs opacity-90">pembaca / user123</span>
-              </button>
-            </div>
-          </div>
-
         </div>
       </div>
     );
@@ -861,7 +897,7 @@ export default function App() {
         <div className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
           
           <div className="flex items-center gap-3">
-            <img src="/logo.svg" alt="Mythoria Logo" className="w-11 h-11 border-3 border-black rounded-full bg-yellow-300 p-0.5 shadow-[3px_3px_0_#000] shrink-0" />
+            <MythoriaLogo className="w-11 h-11 shrink-0" withBorder={true} />
             <div>
               <div className="flex items-center gap-2">
                 <div className="bg-black text-yellow-300 font-black px-2 py-0.5 text-xs tracking-widest border border-black rotate-[-2deg]">
@@ -904,16 +940,14 @@ export default function App() {
               <span title="Tinta Darah (Kekuatan Penuh / Resiko)" className="text-red-600">🔴 {inkBlood}</span>
             </div>
 
-            {currentUser.role === 'admin' && (
-              <button 
-                onClick={() => setShowSettingsModal(true)}
-                className="comic-button-primary px-3 py-1.5 flex items-center gap-1.5 text-xs font-black"
-                title="Kelola API Key Google AI Studio & Model Sistem"
-              >
-                <Settings className="w-4 h-4" />
-                <span>Pengaturan AI</span>
-              </button>
-            )}
+            <button 
+              onClick={() => setShowSettingsModal(true)}
+              className="comic-button-primary px-3 py-1.5 flex items-center gap-1.5 text-xs font-black cursor-pointer"
+              title="Kelola Token Google AI Studio (Gemini)"
+            >
+              <Key className="w-4 h-4 text-yellow-300" />
+              <span>{apiKey || hasServerApiKey ? '🔑 Token AI Aktif' : '🔑 Masukkan Token AI'}</span>
+            </button>
 
             <button 
               onClick={handleLogoutClick}
@@ -940,16 +974,12 @@ export default function App() {
           </div>
           <div>
             {hasServerApiKey || apiKey ? (
-              <span className="text-emerald-400 flex items-center gap-1 text-xs">
-                <CheckCircle2 className="w-4 h-4" /> Sistem AI Siap Digunakan
-              </span>
-            ) : currentUser.role === 'admin' ? (
-              <span className="text-amber-400 flex items-center gap-1 cursor-pointer text-xs" onClick={() => setShowSettingsModal(true)}>
-                <AlertTriangle className="w-4 h-4" /> Klik untuk memasukkan API Key Admin
+              <span className="text-emerald-400 flex items-center gap-1 text-xs cursor-pointer" onClick={() => setShowSettingsModal(true)}>
+                <CheckCircle2 className="w-4 h-4" /> AI Aktif (Dialog & Cerita Kreatif Alami)
               </span>
             ) : (
-              <span className="text-amber-400 flex items-center gap-1 text-xs">
-                <AlertTriangle className="w-4 h-4" /> Mode Cerita Terpadu Aktif
+              <span className="text-amber-400 flex items-center gap-1 cursor-pointer text-xs" onClick={() => setShowSettingsModal(true)}>
+                <AlertTriangle className="w-4 h-4" /> Token Belum Dimasukkan (Klik untuk Pasang Token AI agar Hasil Tidak Kaku)
               </span>
             )}
           </div>
@@ -1057,12 +1087,6 @@ export default function App() {
               ✍️ Tulis Naskah Bebas
             </button>
             <button
-              onClick={() => setActiveTab('summon')}
-              className={`py-2 px-3 text-xs font-black uppercase tracking-wider border-3 border-black transition ${activeTab === 'summon' ? 'bg-yellow-400 shadow-[3px_3px_0_#000] translate-x-[-1px] translate-y-[-1px]' : 'bg-white hover:bg-neutral-100'}`}
-            >
-              🎭 Tokoh Sinema
-            </button>
-            <button
               onClick={() => setActiveTab('glitches')}
               className={`py-2 px-3 text-xs font-black uppercase tracking-wider border-3 border-black transition ${activeTab === 'glitches' ? 'bg-red-500 text-white shadow-[3px_3px_0_#000] translate-x-[-1px] translate-y-[-1px]' : 'bg-white hover:bg-neutral-100'}`}
               title="Robekan Dimensi"
@@ -1101,12 +1125,50 @@ export default function App() {
                 </span>
               </div>
 
-              {/* INDIKATOR KONTINUITAS ALUR CERITA SEBELUMNYA */}
-              {panels.length > 0 && (
+              {/* KARTU BIBLE KARAKTER & KONSISTENSI TOKOH */}
+              <div className="p-2.5 bg-yellow-200 border-2 border-black flex items-center justify-between shadow-[2px_2px_0_#000]">
+                <div className="flex items-center gap-2">
+                  <User className="w-4 h-4 text-amber-900 shrink-0" />
+                  <div className="text-xs">
+                    <span className="font-black uppercase text-amber-950">
+                      Bible Karakter: <strong className="underline">{characterBible.protagonistName}</strong> & <strong className="underline">{characterBible.companionName}</strong>
+                    </span>
+                    <p className="text-[10px] text-neutral-800 font-bold truncate max-w-[210px] sm:max-w-xs">
+                      {characterBible.protagonistAppearance}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowCharacterBibleModal(true)}
+                  className="px-2.5 py-1 text-[10px] font-black uppercase bg-black text-yellow-300 hover:bg-neutral-800 border border-black cursor-pointer shadow-[1px_1px_0_#000] shrink-0"
+                  title="Sesuaikan ciri fisik dan kepribadian tokoh utama & pendamping"
+                >
+                  ⚙️ Edit Tokoh
+                </button>
+              </div>
+
+              {/* INDIKATOR MEMORI ALUR CERITA DARI BABAK SEBELUMNYA */}
+              {currentPage > 1 ? (
+                <div className="p-3 bg-neutral-100 border-2 border-black text-xs space-y-1 shadow-[2px_2px_0_#000]">
+                  <div className="flex items-center justify-between text-xs font-black uppercase text-amber-800 tracking-wider">
+                    <span className="flex items-center gap-1.5">
+                      <BookOpen className="w-3.5 h-3.5 text-amber-600" />
+                      Memori Cerita Babak Sebelumnya:
+                    </span>
+                    <span className="text-[10px] bg-amber-300 text-black px-1.5 py-0.5 border border-black font-black">
+                      Babak 1 ➔ {currentPage - 1}
+                    </span>
+                  </div>
+                  <p className="font-serif italic text-neutral-900 text-xs leading-relaxed max-h-16 overflow-y-auto">
+                    {getPreviousStorySummary() || "Merajut kesinambungan dari awal naskah..."}
+                  </p>
+                </div>
+              ) : panels.length > 0 && (
                 <div className="p-3 bg-neutral-100 border-2 border-black text-xs space-y-1 shadow-[2px_2px_0_#000]">
                   <div className="flex items-center gap-1.5 text-xs font-black uppercase text-amber-800 tracking-wider">
                     <LinkIcon className="w-3.5 h-3.5 text-amber-600" />
-                    Terkoneksi ke Alur Sebelumnya:
+                    Babak Pembuka (Halaman 1):
                   </div>
                   <p className="font-serif italic text-neutral-900 text-xs leading-relaxed line-clamp-2">
                     "{panels[0].comicCaption || panels[0].sentence}" &rarr; {panels[0].aiStory}
@@ -1242,6 +1304,118 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Status Token AI & Mode Pembuatan Komik */}
+              <div className="p-2.5 bg-neutral-900 border-2 border-black flex items-center justify-between text-xs text-white">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-yellow-400 shrink-0" />
+                  <span className="text-[11px] font-bold">
+                    {apiKey || hasServerApiKey ? (
+                      <span className="text-emerald-300 font-black">Mode AI Aktif: Gemini AI menyusun dialog & komik alami (tidak kaku).</span>
+                    ) : (
+                      <span className="text-amber-300">Belum ada Token AI? Masukkan token agar hasil komik tidak formal.</span>
+                    )}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowSettingsModal(true)}
+                  className="px-2 py-1 text-[10px] font-black uppercase bg-yellow-400 hover:bg-yellow-300 text-black border border-black cursor-pointer shadow-[1px_1px_0_#000]"
+                >
+                  {apiKey || hasServerApiKey ? 'Ganti Token' : '🔑 Pasang Token AI'}
+                </button>
+              </div>
+
+              {/* Pilihan Variasi Grid Komik (Hemat Token AI) */}
+              <div className="pt-2 border-t-2 border-black space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black uppercase text-neutral-800 flex items-center gap-1">
+                    <Layers className="w-3.5 h-3.5 text-amber-600" />
+                    Pilih Format Grid Komik:
+                  </label>
+                  <span className="text-[10px] bg-yellow-200 border border-black px-1.5 py-0.5 font-bold text-neutral-800">
+                    Diproses sesuai pilihan (Hemat Token)
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-xs font-black">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedLayout('5-panel')}
+                    className={`border-2 border-black p-2 flex flex-col items-center justify-center text-center transition cursor-pointer ${
+                      selectedLayout === '5-panel'
+                        ? 'bg-yellow-400 text-black shadow-[2px_2px_0_#000]'
+                        : 'bg-white text-neutral-800 hover:bg-neutral-100'
+                    }`}
+                  >
+                    <span>🖼️ 5-Panel</span>
+                    <span className="text-[10px] font-normal opacity-80">Dinamis Lengkap</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedLayout('4-panel')}
+                    className={`border-2 border-black p-2 flex flex-col items-center justify-center text-center transition cursor-pointer ${
+                      selectedLayout === '4-panel'
+                        ? 'bg-yellow-400 text-black shadow-[2px_2px_0_#000]'
+                        : 'bg-white text-neutral-800 hover:bg-neutral-100'
+                    }`}
+                  >
+                    <span>🔲 4-Panel</span>
+                    <span className="text-[10px] font-normal opacity-80">Grid Kotak 2x2</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedLayout('3-panel')}
+                    className={`border-2 border-black p-2 flex flex-col items-center justify-center text-center transition cursor-pointer ${
+                      selectedLayout === '3-panel'
+                        ? 'bg-yellow-400 text-black shadow-[2px_2px_0_#000]'
+                        : 'bg-white text-neutral-800 hover:bg-neutral-100'
+                    }`}
+                  >
+                    <span>🎞️ 3-Panel</span>
+                    <span className="text-[10px] font-normal opacity-80">Sinematik Strip</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Pilihan Gaya & Kostum Karakter (Dinamis / Berubah-ubah) */}
+              <div className="pt-2 border-t-2 border-black space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black uppercase text-neutral-800 flex items-center gap-1">
+                    <User className="w-3.5 h-3.5 text-blue-600" />
+                    Pilihan Tokoh & Kostum:
+                  </label>
+                  <span className="text-[10px] bg-yellow-200 border border-black px-1.5 py-0.5 font-bold text-neutral-800">
+                    Ekspresi wajah & kostum dinamis
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-xs font-bold">
+                  {[
+                    { id: 'auto', label: '🎭 Otomatis', sub: 'Sesuai Cerita' },
+                    { id: 'scifi', label: '🤖 Cyber Sci-Fi', sub: 'Visor & Neon' },
+                    { id: 'fantasy', label: '⚔️ Ksatria Fantasi', sub: 'Jubah & Zirah' },
+                    { id: 'noir', label: '🕵️ Detektif Noir', sub: 'Topi & Mantel' },
+                    { id: 'inventor', label: '🧪 Profesor', sub: 'Goggle & Jas' },
+                    { id: 'female_hero', label: '🧝‍♀️ Heroine', sub: 'Kuncir Kuda' },
+                    { id: 'action', label: '🥋 Hero Aksi', sub: 'Jaket Sporty' }
+                  ].map(char => (
+                    <button
+                      key={char.id}
+                      type="button"
+                      onClick={() => setSelectedCharStyle(char.id)}
+                      className={`p-1.5 border-2 border-black text-left flex flex-col justify-center transition cursor-pointer ${
+                        selectedCharStyle === char.id
+                          ? 'bg-yellow-400 text-black shadow-[2px_2px_0_#000]'
+                          : 'bg-white text-neutral-800 hover:bg-neutral-100'
+                      }`}
+                    >
+                      <span className="font-black text-[11px] leading-tight">{char.label}</span>
+                      <span className="text-[9px] opacity-75">{char.sub}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Tombol Tulis Naskah */}
               <button
                 onClick={handleManifest}
@@ -1260,79 +1434,6 @@ export default function App() {
                   </>
                 )}
               </button>
-            </div>
-          )}
-
-          {/* TAB 2: PEMANGGILAN KARAKTER */}
-          {activeTab === 'summon' && (
-            <div className="comic-panel p-5 space-y-4">
-              <div className="border-b-2 border-black pb-2">
-                <h2 className="font-black text-sm uppercase tracking-wide text-neutral-900 flex items-center gap-1.5">
-                  <UserCheck className="w-4 h-4 text-blue-600" /> Pemanggilan Arketipe Sinema Lawas
-                </h2>
-                <p className="text-xs font-bold text-neutral-600 mt-0.5">
-                  Memanggil tokoh film jadul ke Halaman {currentPage}. (Biaya: 2 Tinta Emas)
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                <div className="border-2 border-black p-3.5 bg-neutral-50 shadow-[3px_3px_0_#000] space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-black text-xs uppercase flex items-center gap-1">
-                      🕵️‍♂️ Detektif Noir Sinis
-                    </span>
-                    <span className="text-xs bg-neutral-900 text-white font-mono px-2 py-0.5 font-bold">1940s NOIR</span>
-                  </div>
-                  <p className="text-xs text-neutral-800 font-serif italic leading-relaxed">
-                    "Kota ini dingin, tapi teka-teki yang ditinggalkan naskah ini jauh lebih beku."
-                  </p>
-                  <button
-                    onClick={() => handleSummon('noir')}
-                    disabled={isProcessing}
-                    className="w-full comic-button-primary py-2 text-xs font-black"
-                  >
-                    Panggil Detektif ke Hal {currentPage}
-                  </button>
-                </div>
-
-                <div className="border-2 border-black p-3.5 bg-purple-50 shadow-[3px_3px_0_#000] space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-black text-xs uppercase flex items-center gap-1">
-                      🧙‍♂️ Penyihir Eksentrik 80-an
-                    </span>
-                    <span className="text-xs bg-purple-900 text-white font-mono px-2 py-0.5 font-bold">80s FANTASY</span>
-                  </div>
-                  <p className="text-xs text-neutral-800 font-serif italic leading-relaxed">
-                    "Aksara terlarang ini tidak boleh dibaca sembarangan oleh fana biasa!"
-                  </p>
-                  <button
-                    onClick={() => handleSummon('wizard')}
-                    disabled={isProcessing}
-                    className="w-full comic-button-primary py-2 text-xs font-black"
-                  >
-                    Panggil Penyihir ke Hal {currentPage}
-                  </button>
-                </div>
-
-                <div className="border-2 border-black p-3.5 bg-emerald-50 shadow-[3px_3px_0_#000] space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-black text-xs uppercase flex items-center gap-1">
-                      🗿 Clay Stop-Motion Golem
-                    </span>
-                    <span className="text-xs bg-emerald-900 text-white font-mono px-2 py-0.5 font-bold">12 FPS MONSTER</span>
-                  </div>
-                  <p className="text-xs text-neutral-800 font-serif italic leading-relaxed">
-                    Gerakan tanah liat patah-patah penakluk barikade tebal dan pelindung fisik.
-                  </p>
-                  <button
-                    onClick={() => handleSummon('golem')}
-                    disabled={isProcessing}
-                    className="w-full comic-button-primary py-2 text-xs font-black"
-                  >
-                    Panggil Golem ke Hal {currentPage}
-                  </button>
-                </div>
-              </div>
             </div>
           )}
 
@@ -1638,7 +1739,12 @@ export default function App() {
                 manifestation={activePagePanels[0]}
                 inkType={activePagePanels[0]?.inkType || inkType}
                 allPanels={activePagePanels}
-                layoutType={pageLayouts[currentPage] || '5-panel'}
+                layoutType={activePagePanels[0]?.layoutType || pageLayouts[currentPage] || selectedLayout}
+                characterStyle={activePagePanels[0]?.characterStyle || selectedCharStyle}
+                characterBible={characterBible}
+                renderingMode={renderingMode}
+                onGeneratePanelImage={handleGeneratePanelImage}
+                generatingImages={generatingImages}
                 onLayoutChange={(l) => setPageLayouts(prev => ({ ...prev, [currentPage]: l }))}
                 branching={pageBranches[currentPage]}
                 onSelectBranch={handleSelectBranch}
@@ -1738,7 +1844,10 @@ export default function App() {
           <div className="comic-panel p-6 sm:p-7 bg-red-100 max-w-md w-full space-y-4 border-4 border-black shadow-[8px_8px_0_#000]">
             
             <div className="border-b-3 border-black pb-3 text-center">
-              <div className="w-16 h-16 mx-auto rounded-full bg-red-600 text-white border-3 border-black flex items-center justify-center text-3xl shadow-[3px_3px_0_#000] mb-2 animate-bounce">
+              <div className="flex justify-center mb-2">
+                <MythoriaLogo className="w-14 h-14" withBorder={true} />
+              </div>
+              <div className="w-12 h-12 mx-auto rounded-full bg-red-600 text-white border-3 border-black flex items-center justify-center text-2xl shadow-[3px_3px_0_#000] mb-2 animate-bounce">
                 ⚠️
               </div>
               <h3 className="font-black text-2xl uppercase text-red-950 tracking-tight">
@@ -1773,8 +1882,8 @@ export default function App() {
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
           <div className="comic-panel p-6 sm:p-7 bg-amber-100 max-w-md w-full space-y-4 border-4 border-black shadow-[8px_8px_0_#000]">
             <div className="border-b-3 border-black pb-3 text-center">
-              <div className="w-16 h-16 mx-auto rounded-full bg-amber-500 text-black border-3 border-black flex items-center justify-center text-3xl shadow-[3px_3px_0_#000] mb-2 animate-bounce">
-                ⚠️
+              <div className="flex justify-center mb-2">
+                <MythoriaLogo className="w-14 h-14" withBorder={true} />
               </div>
               <h3 className="font-black text-2xl uppercase text-amber-950 tracking-tight">
                 PERINGATAN KELUAR!
@@ -1822,8 +1931,8 @@ export default function App() {
           <div className="comic-panel p-6 bg-yellow-100 max-w-md w-full space-y-4 border-4 border-black shadow-[8px_8px_0_#000]">
             
             <div className="border-b-3 border-black pb-2 flex items-center justify-between">
-              <h3 className="font-black text-lg uppercase text-black flex items-center gap-2">
-                <BookOpen className="w-5 h-5 text-amber-600" />
+              <h3 className="font-black text-lg uppercase text-black flex items-center gap-2.5">
+                <MythoriaLogo className="w-7 h-7 shrink-0" withBorder={true} />
                 Buka Halaman Baru ({maxPageNumber + 1})
               </h3>
               <button 
@@ -1879,8 +1988,8 @@ export default function App() {
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
           <div className="comic-panel p-6 bg-red-50 max-w-md w-full space-y-4 border-4 border-black shadow-[8px_8px_0_#000]">
             <div className="border-b-3 border-black pb-3 text-center">
-              <div className="w-14 h-14 mx-auto rounded-full bg-red-600 text-white border-3 border-black flex items-center justify-center text-2xl shadow-[3px_3px_0_#000] mb-2">
-                <Trash2 className="w-7 h-7" />
+              <div className="flex justify-center mb-2">
+                <MythoriaLogo className="w-12 h-12" withBorder={true} />
               </div>
               <h3 className="font-black text-xl uppercase text-red-950 tracking-tight">
                 HAPUS HALAMAN {pageToDelete}?
@@ -1925,19 +2034,19 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL PENGATURAN API KEY (ADMIN ONLY) */}
-      {showSettingsModal && currentUser.role === 'admin' && (
+      {/* MODAL PENGATURAN API KEY (TERSEDIA UNTUK SEMUA PENGGUNA) */}
+      {showSettingsModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
           <div className="comic-panel p-6 bg-yellow-100 max-w-lg w-full space-y-4 border-4 border-black shadow-[8px_8px_0_#000]">
             
             <div className="border-b-3 border-black pb-2 flex items-center justify-between">
-              <h3 className="font-black text-lg uppercase text-black flex items-center gap-2">
-                <img src="/logo.svg" alt="Mythoria Logo" className="w-6 h-6 rounded-full border border-black" />
-                Pengaturan Google AI Studio (Admin)
+              <h3 className="font-black text-lg uppercase text-black flex items-center gap-2.5">
+                <MythoriaLogo className="w-8 h-8 shrink-0" withBorder={true} />
+                Pengaturan Token Google AI Studio (Gemini)
               </h3>
               <button 
                 onClick={() => setShowSettingsModal(false)}
-                className="font-black text-lg px-2 border-2 border-black bg-white hover:bg-neutral-200"
+                className="font-black text-lg px-2 border-2 border-black bg-white hover:bg-neutral-200 cursor-pointer"
               >
                 ✕
               </button>
@@ -1947,26 +2056,32 @@ export default function App() {
               
               <div>
                 <label className="font-black uppercase text-neutral-800 block mb-1 text-xs">
-                  Google AI Studio API Key (Admin):
+                  Google AI Studio API Key (Token):
                 </label>
                 <div className="flex gap-2">
                   <input
                     type="password"
                     value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
+                    onChange={(e) => {
+                      setApiKey(e.target.value);
+                      setAvailableModels([]);
+                      setApiStatusMessage('');
+                    }}
                     placeholder="Masukkan AIzaSy..."
                     className="flex-1 bg-white border-2 border-black p-2.5 font-mono text-xs shadow-[2px_2px_0_#000] focus:outline-none font-bold"
                   />
                   <button
                     onClick={() => fetchAvailableModels(apiKey)}
                     disabled={isLoadingModels || !apiKey}
-                    className="comic-button-primary px-3.5 py-2.5 text-xs flex items-center gap-1 font-black"
+                    className="comic-button-primary px-3.5 py-2.5 text-xs flex items-center gap-1 font-black cursor-pointer"
                   >
-                    {isLoadingModels ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : 'Muat Model'}
+                    {isLoadingModels ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : 'Verifikasi & Muat Model'}
                   </button>
                 </div>
-                <p className="text-xs text-neutral-700 font-bold mt-1">
-                  Kunci API ini akan digunakan oleh seluruh sistem (termasuk User yang menulis naskah).
+                <p className="text-[11px] text-neutral-700 font-bold mt-1.5 leading-relaxed">
+                  💡 <strong>Gratis:</strong> Dapatkan token API Gemini secara gratis di{' '}
+                  <span className="font-mono text-blue-700 underline">aistudio.google.com/apikey</span>.
+                  Setelah dimasukkan, cerita dan dialog komik akan disusun secara dinamis, alami, dan tidak kaku oleh AI!
                 </p>
               </div>
 
@@ -1977,26 +2092,80 @@ export default function App() {
               )}
 
               <div>
-                <label className="font-black uppercase text-neutral-800 block mb-1 text-xs">
-                  Pilih Model yang Tersedia untuk API Key Ini:
-                </label>
-                {availableModels.length > 0 ? (
-                  <select
-                    value={selectedModel}
-                    onChange={(e) => setSelectedModel(e.target.value)}
-                    className="w-full bg-white border-2 border-black p-2.5 font-mono text-xs font-bold shadow-[2px_2px_0_#000] focus:outline-none"
-                  >
-                    {availableModels.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.displayName} ({m.id})
-                      </option>
-                    ))}
-                  </select>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-black uppercase text-neutral-800 text-xs">
+                    Pilihan Model AI Studio:
+                  </label>
+                  {availableModels.length > 0 && (
+                    <span className="text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-400 px-2 py-0.5 rounded">
+                      ✓ {availableModels.length} Model Terverifikasi
+                    </span>
+                  )}
+                </div>
+
+                {isLoadingModels ? (
+                  <div className="p-3 bg-white border-2 border-black flex items-center gap-2.5 text-xs font-bold text-neutral-800">
+                    <RefreshCw className="w-4 h-4 animate-spin text-amber-600 shrink-0" />
+                    <span>Memverifikasi API Key & menyaring daftar model aktif yang didukung...</span>
+                  </div>
+                ) : availableModels.length > 0 ? (
+                  <div className="space-y-1.5">
+                    <select
+                      value={selectedModel}
+                      onChange={(e) => setSelectedModel(e.target.value)}
+                      className="w-full bg-white border-2 border-black p-2.5 font-mono text-xs font-bold shadow-[2px_2px_0_#000] focus:outline-none cursor-pointer"
+                    >
+                      {availableModels.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.displayName} ({m.id})
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-neutral-600 font-bold">
+                      💡 Hanya menampilkan model yang aktif dan didukung untuk API Key yang Anda gunakan.
+                    </p>
+                  </div>
                 ) : (
-                  <div className="p-2.5 bg-neutral-200 border-2 border-black text-neutral-700 font-bold text-xs">
-                    Belum ada model termuat. Masukkan API Key lalu tekan "Muat Model".
+                  <div className="p-3 bg-amber-50 border-2 border-black text-xs font-bold text-neutral-800 space-y-1">
+                    <div className="text-amber-900 font-black flex items-center gap-1.5">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>Model Belum Dimuat Sesuai API Key</span>
+                    </div>
+                    <p className="text-neutral-700 font-medium leading-relaxed">
+                      Pilihan model disaring ketat berdasarkan ketersediaan API Key Anda. Silakan masukkan API Key di atas, lalu klik <strong>"Verifikasi & Muat Model"</strong> untuk memuat daftar model yang aktif.
+                    </p>
                   </div>
                 )}
+              </div>
+
+              {/* PILIHAN MODE RENDER KOMIK */}
+              <div className="p-3 bg-white border-2 border-black space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="font-black uppercase text-neutral-800 text-xs">
+                    Mode Render Visual Panel:
+                  </label>
+                  <span className={`text-[10px] font-black px-2 py-0.5 border border-black uppercase ${renderingMode === 'hybrid_ai' ? 'bg-purple-600 text-white' : 'bg-yellow-300 text-black'}`}>
+                    {renderingMode === 'hybrid_ai' ? '🎨 Ilustrasi AI Imagen 3' : '⚡ Vektor Cepat'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => toggleRenderingMode('vector')}
+                    className={`p-2 border-2 border-black text-left font-bold cursor-pointer transition ${renderingMode === 'vector' ? 'bg-yellow-300 shadow-[2px_2px_0_#000]' : 'bg-neutral-100 hover:bg-neutral-200'}`}
+                  >
+                    <span className="block font-black text-xs">⚡ Vektor Cepat (Bawaan)</span>
+                    <span className="text-[10px] text-neutral-600 font-medium">Instan, hemat kuota token, gaya pop-art komik retro.</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleRenderingMode('hybrid_ai')}
+                    className={`p-2 border-2 border-black text-left font-bold cursor-pointer transition ${renderingMode === 'hybrid_ai' ? 'bg-purple-200 shadow-[2px_2px_0_#000]' : 'bg-neutral-100 hover:bg-neutral-200'}`}
+                  >
+                    <span className="block font-black text-xs">🎨 Ilustrasi Nyata AI</span>
+                    <span className="text-[10px] text-neutral-600 font-medium">Melukis panel resolusi tinggi dengan Google Imagen 3.</span>
+                  </button>
+                </div>
               </div>
 
             </div>
@@ -2004,15 +2173,204 @@ export default function App() {
             <div className="pt-2 border-t-2 border-black flex justify-end gap-2">
               <button
                 onClick={() => setShowSettingsModal(false)}
-                className="px-4 py-2 border-2 border-black bg-white font-bold text-xs"
+                className="px-4 py-2 border-2 border-black bg-white font-bold text-xs cursor-pointer"
               >
                 Batal
               </button>
               <button
                 onClick={saveSettings}
-                className="comic-button-primary px-4 py-2 text-xs font-black"
+                className="comic-button-primary px-4 py-2 text-xs font-black cursor-pointer"
               >
-                Terapkan untuk Seluruh Sistem
+                {currentUser?.role === 'admin' ? 'Terapkan untuk Seluruh Sistem' : 'Simpan & Aktifkan Token AI'}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* MODAL BIBLE KARAKTER (KONSISTENSI TOKOH) */}
+      {showCharacterBibleModal && (
+        <div className="fixed inset-0 bg-black/75 flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="comic-panel p-6 bg-yellow-100 max-w-lg w-full space-y-4 border-4 border-black shadow-[8px_8px_0_#000] max-h-[90vh] overflow-y-auto">
+            
+            <div className="border-b-3 border-black pb-2 flex items-center justify-between">
+              <h3 className="font-black text-lg uppercase text-black flex items-center gap-2">
+                <MythoriaLogo className="w-8 h-8 shrink-0" withBorder={true} />
+                Bible Karakter & Lembar Tokoh
+              </h3>
+              <button 
+                onClick={() => setShowCharacterBibleModal(false)}
+                className="font-black text-lg px-2 border-2 border-black bg-white hover:bg-neutral-200 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-neutral-800 font-bold leading-relaxed">
+              Tentukan ciri fisik, nama, dan peran tokoh Anda. AI akan mempertahankan atribut ini secara konsisten di setiap babak komik!
+            </p>
+
+            {/* PRESET CEPAT TOKOH */}
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-black uppercase text-neutral-900 block">
+                Pilih Preset Cepat Tokoh:
+              </label>
+              <div className="grid grid-cols-2 gap-2 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => updateCharacterBible({
+                    protagonistName: 'Rian',
+                    protagonistArchetype: 'Cyber Ronin',
+                    protagonistAppearance: 'Jubah hitam neon, rambut perak runcing, bekas luka di mata kiri',
+                    protagonistPersonality: 'Tenang, cerdas, berjiwa pemberani membawa proyektor',
+                    companionName: 'Maya',
+                    companionArchetype: 'Hacker & Teknisi',
+                    companionAppearance: 'Kacamata goggle steampunk, jaket kulit kuning, rambut cokelat'
+                  })}
+                  className="p-2 border-2 border-black bg-cyan-100 hover:bg-cyan-200 font-bold text-left cursor-pointer shadow-[2px_2px_0_#000]"
+                >
+                  🤖 Cyber Ronin (Rian & Maya)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateCharacterBible({
+                    protagonistName: 'Arthur',
+                    protagonistArchetype: 'Detektif Hardboiled',
+                    protagonistAppearance: 'Mantel parit cokelat tua, topi fedora hitam, tatapan tajam',
+                    protagonistPersonality: 'Sinis, penuh observasi, teliti dan setia kawan',
+                    companionName: 'Joe',
+                    companionArchetype: 'Informan Kota',
+                    companionAppearance: 'Kemeja garis-garis, rompi kulit, topi loper koran'
+                  })}
+                  className="p-2 border-2 border-black bg-neutral-200 hover:bg-neutral-300 font-bold text-left cursor-pointer shadow-[2px_2px_0_#000]"
+                >
+                  🕵️ Detektif Noir (Arthur & Joe)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateCharacterBible({
+                    protagonistName: 'Valen',
+                    protagonistArchetype: 'Ksatria Sihir',
+                    protagonistAppearance: 'Baju zirah perak mengkilap, jubah merah tua, pedang rune',
+                    protagonistPersonality: 'Tegas, jujur, pantang menyerah dan heroik',
+                    companionName: 'Lyra',
+                    companionArchetype: 'Penyihir Elemen',
+                    companionAppearance: 'Jubah sutra biru langit, tongkat kristal bercahaya'
+                  })}
+                  className="p-2 border-2 border-black bg-purple-100 hover:bg-purple-200 font-bold text-left cursor-pointer shadow-[2px_2px_0_#000]"
+                >
+                  ⚔️ Ksatria Fantasi (Valen & Lyra)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateCharacterBible({
+                    protagonistName: 'Prof. Aris',
+                    protagonistArchetype: 'Ilmuwan Realitas',
+                    protagonistAppearance: 'Jas lab putih kumal, kacamata bundar tebal, reel 35mm di sabuk',
+                    protagonistPersonality: 'Eksentrik, terobsesi membuktikan teori, jenius',
+                    companionName: 'Kiki',
+                    companionArchetype: 'Asisten Laboratorium',
+                    companionAppearance: 'Rompi keselamatan oranye, membawa tablet diagnostik'
+                  })}
+                  className="p-2 border-2 border-black bg-amber-100 hover:bg-amber-200 font-bold text-left cursor-pointer shadow-[2px_2px_0_#000]"
+                >
+                  🧪 Profesor Sinema (Aris & Kiki)
+                </button>
+              </div>
+            </div>
+
+            {/* FORM DETAIL KARAKTER UTAMA */}
+            <div className="p-3 bg-white border-2 border-black space-y-2.5 shadow-[2px_2px_0_#000]">
+              <span className="font-black text-xs uppercase text-amber-900 border-b border-black pb-1 block">
+                👑 Tokoh Utama (Protagonis)
+              </span>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <label className="font-bold block mb-0.5">Nama Tokoh:</label>
+                  <input
+                    type="text"
+                    value={characterBible.protagonistName}
+                    onChange={(e) => updateCharacterBible({ protagonistName: e.target.value })}
+                    className="w-full bg-yellow-50 border-2 border-black p-1.5 font-bold text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold block mb-0.5">Peran / Archetype:</label>
+                  <input
+                    type="text"
+                    value={characterBible.protagonistArchetype}
+                    onChange={(e) => updateCharacterBible({ protagonistArchetype: e.target.value })}
+                    className="w-full bg-yellow-50 border-2 border-black p-1.5 font-bold text-xs"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="font-bold block mb-0.5 text-xs">Ciri Fisik & Pakaian (Warna Baju/Rambut):</label>
+                <input
+                  type="text"
+                  value={characterBible.protagonistAppearance}
+                  onChange={(e) => updateCharacterBible({ protagonistAppearance: e.target.value })}
+                  placeholder="Contoh: Jubah hitam, rambut perak, bekas luka di mata kiri"
+                  className="w-full bg-yellow-50 border-2 border-black p-1.5 font-bold text-xs"
+                />
+              </div>
+              <div>
+                <label className="font-bold block mb-0.5 text-xs">Watak & Sifat Tokoh:</label>
+                <input
+                  type="text"
+                  value={characterBible.protagonistPersonality}
+                  onChange={(e) => updateCharacterBible({ protagonistPersonality: e.target.value })}
+                  placeholder="Contoh: Tenang, sinis tapi setia kawan"
+                  className="w-full bg-yellow-50 border-2 border-black p-1.5 font-bold text-xs"
+                />
+              </div>
+            </div>
+
+            {/* FORM TOKOH PENDAMPING */}
+            <div className="p-3 bg-white border-2 border-black space-y-2.5 shadow-[2px_2px_0_#000]">
+              <span className="font-black text-xs uppercase text-blue-900 border-b border-black pb-1 block">
+                🤝 Tokoh Kawan / Pendamping
+              </span>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <label className="font-bold block mb-0.5">Nama Pendamping:</label>
+                  <input
+                    type="text"
+                    value={characterBible.companionName}
+                    onChange={(e) => updateCharacterBible({ companionName: e.target.value })}
+                    className="w-full bg-blue-50 border-2 border-black p-1.5 font-bold text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold block mb-0.5">Peran Kawan:</label>
+                  <input
+                    type="text"
+                    value={characterBible.companionArchetype}
+                    onChange={(e) => updateCharacterBible({ companionArchetype: e.target.value })}
+                    className="w-full bg-blue-50 border-2 border-black p-1.5 font-bold text-xs"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="font-bold block mb-0.5 text-xs">Ciri Fisik Pendamping (Pakaian/Aksesoris):</label>
+                <input
+                  type="text"
+                  value={characterBible.companionAppearance}
+                  onChange={(e) => updateCharacterBible({ companionAppearance: e.target.value })}
+                  placeholder="Contoh: Jaket kulit kuning, goggle steampunk, rambut cokelat"
+                  className="w-full bg-blue-50 border-2 border-black p-1.5 font-bold text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="pt-2 border-t-2 border-black flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowCharacterBibleModal(false)}
+                className="comic-button-primary px-5 py-2 text-xs font-black cursor-pointer"
+              >
+                ✓ Simpan & Terapkan Bible Karakter
               </button>
             </div>
 

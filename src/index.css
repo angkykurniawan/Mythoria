@@ -1,4 +1,21 @@
+@import url('https://fonts.googleapis.com/css2?family=Bangers&family=Boogaloo&family=Comic+Neue:ital,wght@0,400;0,700;1,700&family=Patrick+Hand&display=swap');
 @import "tailwindcss";
+
+.font-bangers {
+  font-family: 'Bangers', cursive, Impact, sans-serif;
+}
+
+.font-comic-neue {
+  font-family: 'Comic Neue', cursive, sans-serif;
+}
+
+.font-boogaloo {
+  font-family: 'Boogaloo', cursive, sans-serif;
+}
+
+.font-patrick {
+  font-family: 'Patrick Hand', cursive, sans-serif;
+}
 
 @layer base {
   :root {

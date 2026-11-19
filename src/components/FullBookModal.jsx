@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { BookOpen, Printer, Download, X, Sparkles, Layers } from 'lucide-react';
+import MythoriaLogo from './MythoriaLogo';
 
 export default function FullBookModal({
   isOpen,
@@ -79,10 +80,8 @@ export default function FullBookModal({
         
         {/* HEADER MODAL */}
         <div className="border-b-3 border-black pb-3 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-yellow-400 border-2 border-black">
-              <BookOpen className="w-6 h-6 text-black" />
-            </div>
+          <div className="flex items-center gap-3">
+            <MythoriaLogo className="w-12 h-12" withBorder={true} />
             <div>
               <h3 className="font-black text-xl uppercase text-black tracking-tight">
                 UNDUH SELURUH BUKU KOMIK ({pages.length} HALAMAN)
