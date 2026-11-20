@@ -37,7 +37,7 @@ Proses pembuatan komik di Mythoria mengadopsi arsitektur **Agentic Workflow** ya
          ↓
 [Ekspor / Interaktivitas]
   - Unduh Halaman Tunggal (PNG Resolusi Tinggi 1200x1700)
-  - Unduh Seluruh Buku / Cetak PDF
+  - Cetak / Simpan PDF Halaman Komik
   - Buka Halaman Cabang Berikutnya (Choose Your Own Adventure)
 ```
 

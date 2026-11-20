@@ -30,7 +30,6 @@ import {
 } from 'lucide-react';
 import ComicSceneIllustration from './components/ComicSceneIllustration';
 import ComicBookPage from './components/ComicBookPage';
-import FullBookModal from './components/FullBookModal';
 import MythoriaLogo from './components/MythoriaLogo';
 
 export default function App() {
@@ -1061,15 +1060,6 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2 shrink-0 flex-wrap">
-            <button
-              onClick={() => setShowFullBookModal(true)}
-              className="comic-button-primary px-3 py-1.5 text-xs flex items-center gap-1.5 font-black cursor-pointer bg-sky-400 hover:bg-sky-300 text-black border-2 border-black shadow-[2px_2px_0_#000]"
-              title="Unduh seluruh buku komik dari awal sampai akhir sekaligus (PDF / Batch PNG)"
-            >
-              <BookOpen className="w-4 h-4" />
-              <span>📚 Unduh Seluruh Buku</span>
-            </button>
-
             <button
               onClick={() => setShowNewPageModal(true)}
               className="comic-button-primary px-3 py-1.5 text-xs flex items-center gap-1.5 font-black cursor-pointer bg-amber-400 hover:bg-amber-300 text-black border-2 border-black shadow-[2px_2px_0_#000]"
@@ -2411,15 +2401,6 @@ export default function App() {
           </div>
         </div>
       )}
-
-      {/* MODAL UNDUH SELURUH BUKU KOMIK */}
-      <FullBookModal
-        isOpen={showFullBookModal}
-        onClose={() => setShowFullBookModal(false)}
-        pages={pages}
-        panels={panels}
-        currentSessionTitle="Mythoria: Grimoire of Reality"
-      />
 
       {/* MODAL KELOLA & TAMBAH PENGGUNA (HAK AKSES KHUSUS ADMIN) */}
       {showUserModal && currentUser?.role === 'admin' && (

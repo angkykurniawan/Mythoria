@@ -1132,15 +1132,6 @@ export default function ComicBookPage({
         {/* TOMBOL AKSI UNDUH & CETAK */}
         <div className="flex items-center gap-2 flex-wrap">
           <button
-            onClick={onOpenFullBookModal}
-            className="px-2.5 py-1.5 text-xs font-black flex items-center gap-1.5 cursor-pointer bg-amber-400 hover:bg-amber-300 text-black border-2 border-black shadow-[2px_2px_0_#000]"
-            title="Unduh seluruh buku komik dari awal sampai akhir"
-          >
-            <BookOpen className="w-4 h-4" />
-            UNDUH BUKU UTUH
-          </button>
-
-          <button
             onClick={handleDownloadPage}
             className="comic-button-primary px-2.5 py-1.5 text-xs font-black flex items-center gap-1.5 cursor-pointer bg-emerald-400 hover:bg-emerald-300 text-black border-2 border-black shadow-[2px_2px_0_#000]"
             title="Unduh halaman komik ini dalam format gambar resolusi tinggi"
