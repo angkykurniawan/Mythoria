@@ -176,3 +176,12 @@ Mythoria/
      - **Patrick Hand (Indie Hand-Lettered)**
      - **Klasik Standar (System Sans-serif)**
    - Semua tipografi dialog dan onomatopoeia otomatis menyesuaikan secara realtime di SVG canvas serta ikut ter-render saat diekspor ke format PNG maupun PDF.
+
+---
+
+### 👥 Menu Pengelolaan & Tambah Pengguna (Admin)
+- Khusus akun **Sutradara (Admin)**, kini tersedia tombol menu **"👥 Tambah User"** langsung di bilah navigasi atas (*Header*).
+- Modal interaktif admin memungkinkan:
+  - Mendaftarkan akun pengguna baru (Nama Lengkap, Username, Password, Role: *USER* / *ADMIN*).
+  - Melihat seluruh arsip akun yang aktif di sistem secara realtime.
+  - Menghapus akun pengguna yang tidak diperlukan lagi.

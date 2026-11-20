@@ -25,7 +25,8 @@ import {
   Download,
   Printer,
   Compass,
-  GitBranch
+  GitBranch,
+  Mail
 } from 'lucide-react';
 import ComicSceneIllustration from './components/ComicSceneIllustration';
 import ComicBookPage from './components/ComicBookPage';
@@ -143,6 +144,7 @@ export default function App() {
   // Data Pengguna (Untuk Role Admin)
   const [usersList, setUsersList] = useState([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const [showUserModal, setShowUserModal] = useState(false);
   const [newUserName, setNewUserName] = useState('');
   const [newUserUsername, setNewUserUsername] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('');
@@ -881,6 +883,23 @@ export default function App() {
             </button>
           </form>
 
+          {/* KETERANGAN PERMINTAAN AKUN */}
+          <div className="pt-3 border-t-2 border-black text-center space-y-1.5 bg-yellow-50 p-3 border-2 border-dashed border-black shadow-[2px_2px_0_#000]">
+            <p className="text-xs font-bold text-neutral-800">
+              Belum memiliki akun untuk login?
+            </p>
+            <p className="text-xs font-medium text-neutral-700">
+              Silahkan minta akun ke:
+            </p>
+            <a 
+              href="mailto:kurniawan.angang2005@gmail.com"
+              className="inline-flex items-center justify-center gap-1.5 font-black text-xs text-blue-700 hover:text-blue-900 bg-white px-3 py-1.5 border-2 border-black shadow-[2px_2px_0_#000] transition active:translate-x-0.5 active:translate-y-0.5 break-all"
+            >
+              <Mail className="w-3.5 h-3.5 text-red-600 shrink-0" />
+              <span>kurniawan.angang2005@gmail.com</span>
+            </a>
+          </div>
+
         </div>
       </div>
     );
@@ -939,6 +958,21 @@ export default function App() {
               <span title="Tinta Emas (Permanen)" className="text-amber-600">🟡 {inkGold}</span>
               <span title="Tinta Darah (Kekuatan Penuh / Resiko)" className="text-red-600">🔴 {inkBlood}</span>
             </div>
+
+            {currentUser.role === 'admin' && (
+              <button 
+                onClick={() => {
+                  setUserManageMessage({ text: '', type: '' });
+                  fetchUsersList();
+                  setShowUserModal(true);
+                }}
+                className="comic-button-primary bg-purple-600 hover:bg-purple-500 text-white px-3 py-1.5 flex items-center gap-1.5 text-xs font-black cursor-pointer border-2 border-black shadow-[2px_2px_0_#000]"
+                title="Menu Admin: Kelola dan Tambahkan Pengguna Baru"
+              >
+                <UserPlus className="w-4 h-4 text-yellow-300" />
+                <span>👥 Tambah User</span>
+              </button>
+            )}
 
             <button 
               onClick={() => setShowSettingsModal(true)}
@@ -2386,6 +2420,175 @@ export default function App() {
         panels={panels}
         currentSessionTitle="Mythoria: Grimoire of Reality"
       />
+
+      {/* MODAL KELOLA & TAMBAH PENGGUNA (HAK AKSES KHUSUS ADMIN) */}
+      {showUserModal && currentUser?.role === 'admin' && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+          <div className="comic-panel p-6 bg-yellow-100 max-w-xl w-full space-y-4 border-4 border-black shadow-[8px_8px_0_#000] max-h-[90vh] overflow-y-auto">
+            
+            <div className="border-b-3 border-black pb-2 flex items-center justify-between">
+              <h3 className="font-black text-lg uppercase text-purple-900 flex items-center gap-2.5">
+                <Users className="w-6 h-6 text-purple-700" />
+                Menu Kelola & Tambah Pengguna
+              </h3>
+              <button 
+                onClick={() => setShowUserModal(false)}
+                className="font-black text-lg px-2 border-2 border-black bg-white hover:bg-neutral-200 cursor-pointer shadow-[2px_2px_0_#000]"
+                title="Tutup Menu"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs font-bold text-neutral-700 leading-relaxed">
+              Sebagai <strong>Sutradara (Admin)</strong>, Anda dapat mendaftarkan akun baru untuk pembaca atau penulis naskah lainnya agar dapat mengakses portal Mythoria.
+            </p>
+
+            {userManageMessage.text && (
+              <div className={`p-3 border-2 border-black text-xs font-bold flex items-center gap-2 shadow-[2px_2px_0_#000] ${
+                userManageMessage.type === 'success' ? 'bg-emerald-100 text-emerald-900 border-emerald-900' : 'bg-red-100 text-red-900 border-red-900'
+              }`}>
+                {userManageMessage.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-700" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-red-700" />
+                )}
+                <span>{userManageMessage.text}</span>
+              </div>
+            )}
+
+            {/* FORMULIR PENDAFTARAN USER BARU */}
+            <form onSubmit={handleAddUser} className="p-4 bg-purple-50 border-3 border-black shadow-[4px_4px_0_#000] space-y-3 text-xs">
+              <div className="font-black uppercase text-purple-900 flex items-center gap-1.5 text-xs border-b-2 border-purple-200 pb-1.5">
+                <UserPlus className="w-4 h-4 text-purple-700" /> Formulir Tambah Pengguna Baru:
+              </div>
+
+              <div>
+                <label className="font-black uppercase text-neutral-800 block mb-1">Nama Lengkap Pengguna:</label>
+                <input
+                  type="text"
+                  value={newUserName}
+                  onChange={(e) => setNewUserName(e.target.value)}
+                  placeholder="Contoh: Kurniawan / Penulis Misteri"
+                  className="w-full bg-white border-2 border-black p-2 font-bold focus:outline-none text-xs shadow-[1px_1px_0_#000]"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="font-black uppercase text-neutral-800 block mb-1">Username Login:</label>
+                  <input
+                    type="text"
+                    value={newUserUsername}
+                    onChange={(e) => setNewUserUsername(e.target.value)}
+                    placeholder="Contoh: kurniawan"
+                    className="w-full bg-white border-2 border-black p-2 font-bold focus:outline-none text-xs shadow-[1px_1px_0_#000]"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="font-black uppercase text-neutral-800 block mb-1">Password:</label>
+                  <input
+                    type="password"
+                    value={newUserPassword}
+                    onChange={(e) => setNewUserPassword(e.target.value)}
+                    placeholder="Minimal 6 karakter..."
+                    className="w-full bg-white border-2 border-black p-2 font-bold focus:outline-none text-xs shadow-[1px_1px_0_#000]"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="font-black uppercase text-neutral-800 block mb-1">Peran / Hak Akses (Role):</label>
+                <select
+                  value={newUserRole}
+                  onChange={(e) => setNewUserRole(e.target.value)}
+                  className="w-full bg-white border-2 border-black p-2 font-bold focus:outline-none text-xs shadow-[1px_1px_0_#000] cursor-pointer"
+                >
+                  <option value="user">USER (Penulis Naskah & Pembuat Komik)</option>
+                  <option value="admin">ADMIN (Sutradara Pengendali Sistem)</option>
+                </select>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full comic-button-primary bg-purple-600 hover:bg-purple-500 text-white py-2.5 text-xs font-black flex items-center justify-center gap-1.5 border-2 border-black shadow-[2px_2px_0_#000] cursor-pointer mt-1"
+              >
+                <UserPlus className="w-4 h-4 text-yellow-300" />
+                <span>+ DAFTARKAN PENGGUNA BARU</span>
+              </button>
+            </form>
+
+            {/* DAFTAR PENGGUNA TERDAFTAR */}
+            <div className="space-y-2 pt-2 border-t-2 border-black">
+              <div className="flex items-center justify-between text-xs font-black uppercase text-neutral-800">
+                <span className="flex items-center gap-1.5">
+                  <Users className="w-4 h-4 text-purple-700" />
+                  Daftar Pengguna Terdaftar ({usersList.length}):
+                </span>
+                <button 
+                  type="button"
+                  onClick={fetchUsersList} 
+                  className="text-purple-700 hover:underline text-xs flex items-center gap-1 font-bold cursor-pointer"
+                  title="Muat ulang daftar pengguna terbaru"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingUsers ? 'animate-spin' : ''}`} /> Segarkan
+                </button>
+              </div>
+
+              {isLoadingUsers ? (
+                <div className="p-3 text-center text-xs font-bold text-neutral-500 bg-white border-2 border-black">
+                  Memuat data pengguna...
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                  {usersList.map((u) => (
+                    <div key={u.id} className="p-2.5 bg-white border-2 border-black shadow-[2px_2px_0_#000] flex items-center justify-between text-xs">
+                      <div>
+                        <div className="font-black text-neutral-900 flex items-center gap-2">
+                          <span className="text-sm">{u.name}</span>
+                          <span className={`text-[10px] px-2 py-0.5 border border-black font-black uppercase ${u.role === 'admin' ? 'bg-red-500 text-white' : 'bg-blue-100 text-blue-900'}`}>
+                            {u.role}
+                          </span>
+                        </div>
+                        <div className="text-xs text-neutral-600 font-mono mt-0.5">
+                          Username: <strong>@{u.username}</strong>
+                        </div>
+                      </div>
+
+                      {u.id !== 1 && u.username !== 'admin' && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteUser(u.id, u.username)}
+                          className="comic-button-danger px-2.5 py-1 text-xs flex items-center gap-1 cursor-pointer bg-red-600 text-white font-black border border-black shadow-[1px_1px_0_#000]"
+                          title={`Hapus akun @${u.username}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Hapus</span>
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="pt-2 border-t-2 border-black flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowUserModal(false)}
+                className="px-4 py-2 border-2 border-black bg-white hover:bg-neutral-100 font-black text-xs cursor-pointer shadow-[2px_2px_0_#000]"
+              >
+                Tutup Menu
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
 
     </div>
   );
